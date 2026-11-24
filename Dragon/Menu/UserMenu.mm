@@ -14,6 +14,7 @@
 
 #include "../Utilities/VMTHook.h"
 #include "../Utilities/Timer.h"
+#include "../Resources/MenuBackground.h"
 
 #define DRAGON_LOGO @""
 // TODO: Supply a local logo asset for your own public build.
@@ -261,13 +262,19 @@ void UserMenu::LoadOnce() {
     style.Colors[ImGuiCol_CheckMark]            = style.Colors[ImGuiCol_SliderGrabActive];
 }
 
-UserMenu::UserMenu() : io(ImGui::GetIO()), style(ImGui::GetStyle()), DragonLogo(nullptr)
+UserMenu::UserMenu() : io(ImGui::GetIO()), style(ImGui::GetStyle()), DragonLogo(nullptr), BackgroundTex(nullptr)
 {
     LoadOnce();
 
     GetImTextureViaURL(
        DRAGON_LOGO,
        DragonLogo
+    );
+
+    GetImTextureViaData(
+       MenuBackgroundData,
+       MenuBackgroundSize,
+       BackgroundTex
     );
 }
 
@@ -321,6 +328,40 @@ void GetImTextureViaURL(NSString* const urlString, void*& outTextureID)
     }];
 
     [downloadTask resume];
+}
+
+// Loads a texture from image bytes embedded in the binary (JPEG/PNG), synchronously.
+void GetImTextureViaData(const unsigned char* bytes, size_t length, void*& outTextureID)
+{
+    outTextureID = nullptr;
+
+    if (!bytes || !length)
+        return;
+
+    NSData* const data = [NSData dataWithBytes:bytes length:length];
+    UIImage* const image = [UIImage imageWithData:data];
+    id<MTLDevice> const device = MTLCreateSystemDefaultDevice();
+    if (!image || !image.CGImage || !device)
+        return;
+
+    MTKTextureLoader* const textureLoader = [[MTKTextureLoader alloc] initWithDevice:device];
+    if (!textureLoader)
+        return;
+
+    NSDictionary* const textureLoaderOptions = @{
+        MTKTextureLoaderOptionSRGB : @NO,
+        MTKTextureLoaderOptionTextureUsage : @(MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget),
+        MTKTextureLoaderOptionTextureStorageMode : @(MTLStorageModePrivate)
+    };
+
+    NSError* textureError = nil;
+    id<MTLTexture> const metalTexture = [textureLoader newTextureWithCGImage:image.CGImage
+                                                                      options:textureLoaderOptions
+                                                                        error:&textureError];
+    if (!metalTexture || textureError)
+        return;
+
+    outTextureID = (__bridge_retained void*)(metalTexture);
 }
 
 // -------- // -------- // -------- // -------- // -------- // -------- // -------- // -------- // -------- // -------- //
@@ -624,6 +665,34 @@ FORCEINLINE void UserMenu::DrawCompositeWindow(
 
         dl->Flags = saved;
 
+    }
+
+    // Background photo (cover-fit, anchored towards the top so the head stays visible)
+    if (BackgroundTex)
+    {
+        constexpr int   kBgAlpha  = 120;   // 0..255, lower = more transparent / better text contrast
+        constexpr float kBgFocusY = 0.25f; // 0 = crop from bottom, 0.5 = centered crop, 1 = crop from top
+
+        const ImVec2 aMin = pos + ImVec2(sidebar_w, 0.0f);
+        const ImVec2 aMax = pos + size;
+
+        const float areaAspect = (aMax.x - aMin.x) / ImMax(1.0f, aMax.y - aMin.y);
+        const float imgAspect  = (float)MenuBackgroundWidth / (float)MenuBackgroundHeight;
+
+        ImVec2 uv0(0.0f, 0.0f), uv1(1.0f, 1.0f);
+        if (areaAspect > imgAspect) {            // area is wider: crop top/bottom
+            const float v = imgAspect / areaAspect;
+            uv0.y = (1.0f - v) * kBgFocusY;
+            uv1.y = uv0.y + v;
+        } else {                                 // area is taller: crop left/right
+            const float u = areaAspect / imgAspect;
+            uv0.x = (1.0f - u) * 0.5f;
+            uv1.x = uv0.x + u;
+        }
+
+        dl->PushClipRect(SnapFill(aMin + ImVec2(0.0f, r)), SnapFill(aMax - ImVec2(0.0f, r)), true);
+        dl->AddImage((ImTextureID)(intptr_t)BackgroundTex, aMin, aMax, uv0, uv1, IM_COL32(255, 255, 255, kBgAlpha));
+        dl->PopClipRect();
     }
 
     const float pad      = 16.0f;

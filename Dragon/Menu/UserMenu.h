@@ -80,6 +80,7 @@ struct PlayerDisplayInfo {
 
 
 void GetImTextureViaURL(NSString* const urlString, void*& outTextureID);
+void GetImTextureViaData(const unsigned char* bytes, size_t length, void*& outTextureID);
 
 void DrawCrosshair();
 
@@ -160,6 +161,7 @@ private:
 /* * * * * * * * * * * * * * * * * * * * * * * * * */
 /* * * * * * * * * ~   Content   ~ * * * * * * * * */
     void* DragonLogo;
+    void* BackgroundTex;
     
 /* * * * * * * * * * * * * * * * * * * * * * * * * */
     
